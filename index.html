@@ -308,8 +308,8 @@ function showStorageBanner(mode) {
 }
 
 async function remoteCall(params) {
-  const qs = new URLSearchParams(params).toString();
-  const res = await fetch(`${SHEETS_API_URL}?${qs}`, { method: 'GET' });
+  const qs = new URLSearchParams({ ...params, _t: Date.now() }).toString();
+  const res = await fetch(`${SHEETS_API_URL}?${qs}`, { method: 'GET', cache: 'no-store' });
   if (!res.ok) throw new Error('Remote backend failed: ' + res.status);
   return await res.json();
 }
@@ -1047,25 +1047,34 @@ async function toggleTorch() {
 
 function scanFrame() {
   if (!scanning) return;
-  if (video.readyState === video.HAVE_ENOUGH_DATA) {
-    const vw = video.videoWidth, vh = video.videoHeight;
-    if (vw && vh) {
-      // Crop to the visible center square (matches what the viewfinder shows via object-fit: cover)
-      const side = Math.min(vw, vh);
-      const sx = (vw - side) / 2;
-      const sy = (vh - side) / 2;
-      canvas.width = side;
-      canvas.height = side;
-      ctx.drawImage(video, sx, sy, side, side, 0, 0, side, side);
-      const imageData = ctx.getImageData(0, 0, side, side);
-      const code = jsQR(imageData.data, side, side, { inversionAttempts: 'attemptBoth' });
-      if (code && code.data) {
-        statusLine.textContent = 'พบ QR: ' + code.data;
-        stopCamera();
-        lookupTank(code.data);
-        return;
+  try {
+    if (typeof jsQR !== 'function') {
+      statusLine.textContent = 'โหลดตัวอ่าน QR ไม่สำเร็จ (เช็คอินเทอร์เน็ต) ลองรีเฟรชหน้าใหม่ หรือใช้ปุ่มอัปโหลดรูป/กรอกเลขถังแทน';
+      stopCamera();
+      return;
+    }
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      const vw = video.videoWidth, vh = video.videoHeight;
+      if (vw && vh) {
+        // Crop to the visible center square (matches what the viewfinder shows via object-fit: cover)
+        const side = Math.min(vw, vh);
+        const sx = (vw - side) / 2;
+        const sy = (vh - side) / 2;
+        canvas.width = side;
+        canvas.height = side;
+        ctx.drawImage(video, sx, sy, side, side, 0, 0, side, side);
+        const imageData = ctx.getImageData(0, 0, side, side);
+        const code = jsQR(imageData.data, side, side, { inversionAttempts: 'attemptBoth' });
+        if (code && code.data) {
+          statusLine.textContent = 'พบ QR: ' + code.data;
+          stopCamera();
+          lookupTank(code.data);
+          return;
+        }
       }
     }
+  } catch (e) {
+    // Swallow per-frame decode errors so a single bad frame never silently stops scanning
   }
   requestAnimationFrame(scanFrame);
 }
